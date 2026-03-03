@@ -1,0 +1,50 @@
+# Keil MDK-ARM
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+MDK-ARM/Listings/
+MDK-ARM/Objects/
+# If the output directory is named after the project
+MDK-ARM/ecg_v1.4/
+
+# STM32CubeMX
+.mxproject
+
+# Compiled Object files
+*.o
+*.obj
+*.crf
+*.d
+*.dep
+*.ie
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Executables and debug symbols
+*.elf
+*.hex
+*.bin
+*.axf
+*.map
+*.htm
+*.lnp
+*.sct
+*.lst
+
+# Temporary files
+*.tmp
+*~
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
