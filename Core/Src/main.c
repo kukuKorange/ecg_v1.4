@@ -97,14 +97,25 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
-  OLED_ShowString(0, 0, "OLED Test", OLED_8X16);
+  OLED_ShowString(0, 0, "Hello ECG!", OLED_8X16);
+  OLED_ShowString(0, 20, "PB12:SCL PB13:SDA", OLED_6X8);
   OLED_Update();
+  HAL_Delay(1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint32_t count = 0;
   while (1)
   {
+    OLED_Clear();
+    OLED_ShowString(0, 0, "Running...", OLED_8X16);
+    OLED_ShowNum(0, 24, count++, 5, OLED_8X16);
+    OLED_DrawRectangle(80, 20, 30, 30, OLED_UNFILLED);
+    OLED_DrawCircle(95, 35, 10, (count % 2)); // 闪烁实心/空心圆
+    OLED_Update();
+    
+    HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
