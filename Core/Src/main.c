@@ -28,6 +28,8 @@
 /* USER CODE BEGIN Includes */
 #include "../../User/oled/OLED.h"
 #include "../../User/sd/SD_Card.h"
+#include "../../User/led/led.h"
+#include "../../User/beep/beep.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
