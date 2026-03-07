@@ -93,7 +93,7 @@ uint8_t OLED_DisplayBuf[8][128];
   */
 static void OLED_I2C_Delay(void)
 {
-	volatile uint32_t i = 20;
+	volatile uint32_t i = 120;  /* 100MHz主频下约6us, 保持与16MHz时相同的I2C速率 */
 	while(i--);
 }
 
@@ -418,7 +418,7 @@ void OLED_Reverse(void)
 		}
 	}
 }
-
+	
 /**
   * 函    数：将OLED显存数组部分取反
   * 参    数：X 指定区域左上角的横坐标，范围：0~127
@@ -801,7 +801,7 @@ void OLED_DrawLine(uint8_t X0, uint8_t Y0, uint8_t X1, uint8_t Y1)
 			else if (yflag)		{OLED_DrawPoint(x, -y);}
 			else if (xyflag)	{OLED_DrawPoint(y, x);}
 			else				{OLED_DrawPoint(x, y);}
-		}
+		}	
 	}
 }
 
@@ -934,7 +934,7 @@ void OLED_DrawEllipse(uint8_t X, uint8_t Y, uint8_t A, uint8_t B, uint8_t IsFill
 			y --;
 		}
 		OLED_DrawPoint(X + x, Y); OLED_DrawPoint(X - x, Y);
-	}
+			}
 	else
 	{
 		while (b2 * (x + 1) < a2 * (y - 0.5))
@@ -947,7 +947,7 @@ void OLED_DrawEllipse(uint8_t X, uint8_t Y, uint8_t A, uint8_t B, uint8_t IsFill
 		}
 		int32_t d2 = b2 * (x + 0.5) * (x + 0.5) + a2 * (y - 1) * (y - 1) - a2 * b2;
 		while (y > 0)
-		{
+			{
 			OLED_DrawLine(X - x, Y + y, X + x, Y + y);
 			OLED_DrawLine(X - x, Y - y, X + x, Y - y);
 			if (d2 < 0) { d2 += b2 * (2 * x + 2) + a2 * (-2 * y + 3); x ++; }

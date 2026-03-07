@@ -27,6 +27,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "../../User/oled/OLED.h"
+#include "../../User/sd/SD_Card.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -97,10 +98,41 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
-  OLED_ShowString(0, 0, "Hello ECG!", OLED_8X16);
-  OLED_ShowString(0, 20, "PB12:SCL PB13:SDA", OLED_6X8);
+  OLED_ShowString(0, 0, "ECG v1.4", OLED_8X16);
+  OLED_ShowString(0, 16, "SD Init...", OLED_6X8);
   OLED_Update();
-  HAL_Delay(1000);
+  
+  uint8_t sd_res = SD_Init();
+  OLED_Clear();
+  OLED_ShowString(0, 0, "ECG v1.4", OLED_8X16);
+  if (sd_res == 0)
+  {
+    OLED_ShowString(0, 20, "SD OK!", OLED_8X16);
+    if (SD_CardType == SD_TYPE_V2HC)
+      OLED_ShowString(0, 40, "Type: SDHC(V2)", OLED_6X8);
+    else if (SD_CardType == SD_TYPE_V2)
+      OLED_ShowString(0, 40, "Type: SD V2", OLED_6X8);
+    else if (SD_CardType == SD_TYPE_V1)
+      OLED_ShowString(0, 40, "Type: SD V1", OLED_6X8);
+    else if (SD_CardType == SD_TYPE_MMC)
+      OLED_ShowString(0, 40, "Type: MMC", OLED_6X8);
+    OLED_ShowString(0, 50, "Retry:", OLED_6X8);
+    OLED_ShowNum(36, 50, SD_Debug_Retry, 5, OLED_6X8);
+  }
+  else
+  {
+    OLED_ShowString(0, 20, "SD FAIL!", OLED_8X16);
+    OLED_ShowString(0, 38, "Err:", OLED_6X8);
+    OLED_ShowNum(24, 38, sd_res, 1, OLED_6X8);
+    OLED_ShowString(0, 48, "C55:", OLED_6X8);
+    OLED_ShowHexNum(24, 48, SD_Debug_CMD55_Res, 2, OLED_6X8);
+    OLED_ShowString(60, 48, "C41:", OLED_6X8);
+    OLED_ShowHexNum(84, 48, SD_Debug_CMD41_Res, 2, OLED_6X8);
+    OLED_ShowString(0, 56, "Retry:", OLED_6X8);
+    OLED_ShowNum(36, 56, SD_Debug_Retry, 5, OLED_6X8);
+  }
+  OLED_Update();
+  HAL_Delay(2000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -139,26 +171,33 @@ void SystemClock_Config(void)
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
+  * HSI = 16MHz → PLL → SYSCLK = 100MHz
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;      /* VCO input  = 16MHz / 8  = 2MHz   */
+  RCC_OscInitStruct.PLL.PLLN = 100;    /* VCO output = 2MHz * 100 = 200MHz */
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;  /* SYSCLK = 200MHz / 2 = 100MHz */
+  RCC_OscInitStruct.PLL.PLLQ = 4;      /* USB/SDIO   = 200MHz / 4 = 50MHz  */
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
+  * SYSCLK=100MHz, AHB=100MHz, APB1=50MHz(max), APB2=100MHz
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;   /* APB1 = 100/2 = 50MHz (max 50) */
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;   /* APB2 = 100MHz */
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
