@@ -1,21 +1,27 @@
 /**
   ******************************************************************************
   * @file    key.c
-  * @brief   三按键驱动 (PA11 / PA12 / PA15, 输入模式, 支持消抖 + 短按/长按)
+  * @brief   Key driver (PA11/PA12/PA15) + page navigation
+  *
+  * @details Non-blocking scan with debounce + short/long press detection.
+  *          Key_Process() handles page switching (ported from v1.3 Key_Process).
   ******************************************************************************
   */
 
 #include "key.h"
+#include "../display/display.h"
+#include "../led/led.h"
 
-/* ---------- 内部数据结构 ---------- */
+/*============================ Internal State ============================*/
+
 typedef struct {
     GPIO_TypeDef *port;
     uint16_t      pin;
-    uint8_t       debounce_cnt;   /* 消抖计数器 */
-    uint8_t       stable;         /* 稳定后的状态 1=按下 0=松开 */
-    uint16_t      hold_cnt;       /* 按住计数器 */
-    uint8_t       long_triggered; /* 长按已触发标志 */
-    uint8_t       event;          /* 待读取事件 */
+    uint8_t       debounce_cnt;
+    uint8_t       stable;
+    uint16_t      hold_cnt;
+    uint8_t       long_triggered;
+    uint8_t       event;
 } KeyState_t;
 
 static KeyState_t keys[KEY_COUNT] = {
@@ -24,29 +30,33 @@ static KeyState_t keys[KEY_COUNT] = {
     { KEY3_GPIO_PORT, KEY3_GPIO_PIN, 0, 0, 0, 0, KEY_EVENT_NONE },
 };
 
-/* ---------- 读原始电平 ---------- */
-/**
- * @brief  读取指定按键的原始电平 (无消抖)
- * @param  key_id: KEY1 / KEY2 / KEY3
- * @retval 1: 按下, 0: 松开
- */
+/*============================ Raw Read ============================*/
+
 uint8_t Key_ReadRaw(uint8_t key_id)
 {
     if (key_id >= KEY_COUNT) return 0;
     return (HAL_GPIO_ReadPin(keys[key_id].port, keys[key_id].pin) == KEY_PRESSED_LEVEL) ? 1 : 0;
 }
 
-/* ---------- 周期扫描 (非阻塞, 含消抖 + 长按检测) ---------- */
+/*============================ Non-blocking Scan ============================*/
+
 /**
- * @brief  按键扫描, 需周期性调用 (建议 10~20ms)
- */
+  * @brief  Rate-limited key scan (~5ms interval via HAL_GetTick)
+  * @note   Safe to call from a fast main loop.
+  *         Debounce:   3 × 5ms = 15ms
+  *         Long press: 200 × 5ms = 1000ms
+  */
 void Key_Scan(void)
 {
+    static uint32_t last_tick = 0;
+    uint32_t now = HAL_GetTick();
+    if (now - last_tick < 5) return;
+    last_tick = now;
+
     for (uint8_t i = 0; i < KEY_COUNT; i++)
     {
         uint8_t raw = Key_ReadRaw(i);
 
-        /* ---- 消抖 ---- */
         if (raw != keys[i].stable)
         {
             keys[i].debounce_cnt++;
@@ -57,13 +67,11 @@ void Key_Scan(void)
 
                 if (raw)
                 {
-                    /* 按下: 重置计数 */
                     keys[i].hold_cnt = 0;
                     keys[i].long_triggered = 0;
                 }
                 else
                 {
-                    /* 松开: 若未触发长按则判定为短按 */
                     if (!keys[i].long_triggered)
                     {
                         keys[i].event = KEY_EVENT_SHORT_PRESS;
@@ -76,7 +84,6 @@ void Key_Scan(void)
             keys[i].debounce_cnt = 0;
         }
 
-        /* ---- 长按检测 ---- */
         if (keys[i].stable && !keys[i].long_triggered)
         {
             keys[i].hold_cnt++;
@@ -89,12 +96,8 @@ void Key_Scan(void)
     }
 }
 
-/* ---------- 获取事件 (读后清除) ---------- */
-/**
- * @brief  获取按键事件
- * @param  key_id: KEY1 / KEY2 / KEY3
- * @retval KEY_EVENT_NONE / KEY_EVENT_SHORT_PRESS / KEY_EVENT_LONG_PRESS
- */
+/*============================ Get Event ============================*/
+
 uint8_t Key_GetEvent(uint8_t key_id)
 {
     if (key_id >= KEY_COUNT) return KEY_EVENT_NONE;
@@ -103,28 +106,23 @@ uint8_t Key_GetEvent(uint8_t key_id)
     return evt;
 }
 
-/* ---------- 阻塞式等待按键 ---------- */
-/**
- * @brief  阻塞等待任意按键按下 (含消抖)
- * @retval KEY1 / KEY2 / KEY3
- */
+/*============================ Blocking Wait ============================*/
+
 uint8_t Key_WaitPress(void)
 {
-    /* 等待所有按键松开 */
     while (Key_ReadRaw(KEY1) || Key_ReadRaw(KEY2) || Key_ReadRaw(KEY3))
     {
         HAL_Delay(10);
     }
     HAL_Delay(20);
 
-    /* 等待按下 */
     while (1)
     {
         for (uint8_t i = 0; i < KEY_COUNT; i++)
         {
             if (Key_ReadRaw(i))
             {
-                HAL_Delay(20);  /* 消抖 */
+                HAL_Delay(20);
                 if (Key_ReadRaw(i))
                     return i;
             }
@@ -133,3 +131,47 @@ uint8_t Key_WaitPress(void)
     }
 }
 
+/*============================ Page Navigation (from v1.3 Key_Process) ============================*/
+
+/**
+  * @brief  Key event handler — page navigation + function keys
+  *
+  *         ┌─────────────────────────────────────┐
+  *         │  [KEY1]      [KEY2]      [KEY3]     │
+  *         │  上一页      功能键       下一页     │
+  *         └─────────────────────────────────────┘
+  */
+void Key_Process(void)
+{
+    uint8_t evt;
+
+    /* KEY1: previous page (short or long press) */
+    evt = Key_GetEvent(KEY1);
+    if (evt == KEY_EVENT_SHORT_PRESS || evt == KEY_EVENT_LONG_PRESS)
+    {
+        if (current_page > 0)
+            current_page--;
+        else
+            current_page = PAGE_MAX - 1;
+    }
+
+    /* KEY2: function key (short press only) */
+    evt = Key_GetEvent(KEY2);
+    if (evt == KEY_EVENT_SHORT_PRESS)
+    {
+        if (current_page == PAGE_ECG)
+        {
+            LED_Toggle();
+        }
+    }
+
+    /* KEY3: next page (short or long press) */
+    evt = Key_GetEvent(KEY3);
+    if (evt == KEY_EVENT_SHORT_PRESS || evt == KEY_EVENT_LONG_PRESS)
+    {
+        if (current_page < PAGE_MAX - 1)
+            current_page++;
+        else
+            current_page = 0;
+    }
+}
