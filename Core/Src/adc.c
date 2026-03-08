@@ -127,4 +127,23 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 
 /* USER CODE BEGIN 1 */
 
+/**
+  * @brief  Read a single ADC conversion on the specified channel
+  * @param  channel  ADC_CHANNEL_4 (battery) or ADC_CHANNEL_5 (ECG) etc.
+  * @retval 12-bit ADC value (0-4095)
+  */
+uint16_t ADC_ReadChannel(uint32_t channel)
+{
+    ADC_ChannelConfTypeDef sConfig = {0};
+
+    sConfig.Channel      = channel;
+    sConfig.Rank         = 1;
+    sConfig.SamplingTime = ADC_SAMPLETIME_15CYCLES;
+    HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 10);
+    return (uint16_t)HAL_ADC_GetValue(&hadc1);
+}
+
 /* USER CODE END 1 */
