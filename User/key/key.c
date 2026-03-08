@@ -389,7 +389,13 @@ static void Key_Page_Settings(void)
         if (setting_cursor < SETTING_ITEM_MAX - 1)
             setting_cursor++;
         else
+        {
+#ifdef FEATURE_DEBUG_PAGE
+            current_page = PAGE_DEBUG;
+#else
             current_page = PAGE_ECG;
+#endif
+        }
     }
 
     /* K2: toggle / select */
@@ -421,6 +427,29 @@ static void Key_Page_Settings(void)
     }
 }
 
+#ifdef FEATURE_DEBUG_PAGE
+/*============================ Page: Debug ============================*/
+
+static void Key_Page_Debug(void)
+{
+    uint8_t e1 = Key_GetEvent(KEY1);
+    uint8_t e2 = Key_GetEvent(KEY2);
+    uint8_t e3 = Key_GetEvent(KEY3);
+
+    /* K1: prev page (Settings) */
+    if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+        current_page = PAGE_SETTINGS;
+
+    /* K3: next page (ECG, wraps around) */
+    if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+        current_page = PAGE_ECG;
+
+    /* K2: toggle LED (useful for testing) */
+    if (e2 == KEY_EVENT_SHORT_PRESS)
+        LED_Toggle();
+}
+#endif /* FEATURE_DEBUG_PAGE */
+
 /*============================ Main Dispatcher ============================*/
 
 void Key_Process(void)
@@ -431,6 +460,9 @@ void Key_Process(void)
         case PAGE_HISTORY:  Key_Page_History();   break;
         case PAGE_USER:     Key_Page_User();      break;
         case PAGE_SETTINGS: Key_Page_Settings();  break;
+#ifdef FEATURE_DEBUG_PAGE
+        case PAGE_DEBUG:    Key_Page_Debug();     break;
+#endif
         default: break;
     }
 }

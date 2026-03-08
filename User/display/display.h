@@ -4,10 +4,11 @@
   * @brief   OLED display module — 4-page system
   *
   * @details Pages:
-  *          0  PAGE_ECG      — ECG waveform + HR + time + battery + lead status
-  *          1  PAGE_HISTORY  — Recording history list / playback
-  *          2  PAGE_USER     — User info (name + age) editing
-  *          3  PAGE_SETTINGS — Monitoring mode + timed duration
+ *          0  PAGE_ECG      — ECG waveform + HR + time + battery + lead status
+ *          1  PAGE_HISTORY  — Recording history list / playback
+ *          2  PAGE_USER     — User info (name + age) editing
+ *          3  PAGE_SETTINGS — Monitoring mode + timed duration
+ *          4  PAGE_DEBUG    — Battery/ADC/Key/LED/Beep debug info
   ******************************************************************************
   */
 
@@ -15,6 +16,7 @@
 #define __DISPLAY_H
 
 #include <stdint.h>
+#include "../config.h"
 
 /*============================ Page Definitions ============================*/
 
@@ -22,7 +24,13 @@
 #define PAGE_HISTORY      1
 #define PAGE_USER         2
 #define PAGE_SETTINGS     3
-#define PAGE_MAX          4
+
+#ifdef FEATURE_DEBUG_PAGE
+  #define PAGE_DEBUG      4
+  #define PAGE_MAX        5
+#else
+  #define PAGE_MAX        4
+#endif
 
 /*============================ History Sub-states ============================*/
 

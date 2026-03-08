@@ -12,6 +12,10 @@
 #include "../battery/battery.h"
 #include "../recorder/recorder.h"
 #include "../userinfo/userinfo.h"
+#include "../key/key.h"
+#include "../led/led.h"
+#include "../beep/beep.h"
+#include "adc.h"
 #include <string.h>
 
 /*============================ Global Variables ============================*/
@@ -47,6 +51,9 @@ static void Display_PageECG(void);
 static void Display_PageHistory(void);
 static void Display_PageUser(void);
 static void Display_PageSettings(void);
+#ifdef FEATURE_DEBUG_PAGE
+static void Display_PageDebug(void);
+#endif
 
 /*============================ Helpers ============================*/
 
@@ -117,10 +124,13 @@ void Display_Update(void)
     /* ---- Per-page processing ---- */
     switch (current_page)
     {
-        case PAGE_ECG:      Display_PageECG();      break;
+        case PAGE_ECG:      Display_PageECG();       break;
         case PAGE_HISTORY:  Display_PageHistory();   break;
         case PAGE_USER:     Display_PageUser();      break;
         case PAGE_SETTINGS: Display_PageSettings();  break;
+#ifdef FEATURE_DEBUG_PAGE
+        case PAGE_DEBUG:    Display_PageDebug();     break;
+#endif
         default:            current_page = PAGE_ECG; break;
     }
 }
@@ -470,3 +480,58 @@ static void Display_PageSettings(void)
 
     OLED_Update();
 }
+
+/*============================ PAGE 4: Debug ============================*/
+#ifdef FEATURE_DEBUG_PAGE
+
+static void Display_PageDebug(void)
+{
+    uint16_t bat_adc, ecg_adc;
+
+    if (!display_refresh_flag)
+        return;
+    display_refresh_flag = 0;
+
+    OLED_Clear();
+    OLED_ShowString(0, 0, "[Debug]", OLED_6X8);
+    OLED_ShowNum(92, 0, seconds_counter, 5, OLED_6X8);
+
+    /* 电池: ADC原始值 + 还原电压 + 百分比 */
+    bat_adc = ADC_ReadChannel(ADC_CHANNEL_4);
+    OLED_ShowString(0, 10, "BAT:", OLED_6X8);
+    OLED_ShowNum(24, 10, bat_adc, 4, OLED_6X8);
+    OLED_ShowNum(56, 10, battery_mv, 4, OLED_6X8);
+    OLED_ShowString(80, 10, "mV", OLED_6X8);
+    OLED_ShowNum(98, 10, battery_percent, 3, OLED_6X8);
+    OLED_ShowChar(116, 10, '%', OLED_6X8);
+
+    /* ECG ADC原始值 + 导联状态 */
+    ecg_adc = ADC_ReadChannel(ADC_CHANNEL_5);
+    OLED_ShowString(0, 20, "ECG:", OLED_6X8);
+    OLED_ShowNum(24, 20, ecg_adc, 4, OLED_6X8);
+    OLED_ShowString(56, 20, "Lead:", OLED_6X8);
+    OLED_ShowString(86, 20, (char *)(AD8232_GetConnect() ? "OK " : "OFF"), OLED_6X8);
+
+    /* 按键实时状态 (1=按下 0=松开) */
+    OLED_ShowString(0, 30, "K1:", OLED_6X8);
+    OLED_ShowNum(18, 30, Key_ReadRaw(KEY1), 1, OLED_6X8);
+    OLED_ShowString(32, 30, "K2:", OLED_6X8);
+    OLED_ShowNum(50, 30, Key_ReadRaw(KEY2), 1, OLED_6X8);
+    OLED_ShowString(64, 30, "K3:", OLED_6X8);
+    OLED_ShowNum(82, 30, Key_ReadRaw(KEY3), 1, OLED_6X8);
+
+    /* LED + Beep 状态 */
+    OLED_ShowString(0, 40, "LED:", OLED_6X8);
+    OLED_ShowString(24, 40, (char *)(LED_GetState() ? "ON " : "OFF"), OLED_6X8);
+    OLED_ShowString(56, 40, "Beep:", OLED_6X8);
+    OLED_ShowString(86, 40, (char *)(Beep_GetState() ? "ON " : "OFF"), OLED_6X8);
+
+    /* 录制状态 + 记录数 */
+    OLED_ShowString(0, 50, "REC:", OLED_6X8);
+    OLED_ShowString(24, 50, (char *)(recorder_recording ? "RUN" : "---"), OLED_6X8);
+    OLED_ShowString(56, 50, "N:", OLED_6X8);
+    OLED_ShowNum(68, 50, Recorder_GetCount(), 2, OLED_6X8);
+
+    OLED_Update();
+}
+#endif /* FEATURE_DEBUG_PAGE */
