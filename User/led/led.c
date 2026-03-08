@@ -1,26 +1,26 @@
 /**
   ******************************************************************************
   * @file    led.c
-  * @brief   LED驱动 (PB10, 推挽输出, 低电平点亮 / 高电平熄灭可按需修改)
+  * @brief   LED驱动 (PB10, 推挽输出, 低电平点亮)
   ******************************************************************************
   */
 
 #include "led.h"
 
 /**
- * @brief  点亮LED (输出高电平; 若硬件低电平点亮请交换 SET/RESET)
+ * @brief  点亮LED (输出低电平)
  */
 void LED_On(void)
 {
-    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_RESET);
 }
 
 /**
- * @brief  熄灭LED
+ * @brief  熄灭LED (输出高电平)
  */
 void LED_Off(void)
 {
-    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_SET);
 }
 
 /**
@@ -38,9 +38,9 @@ void LED_Toggle(void)
 void LED_SetState(uint8_t state)
 {
     if (state)
-        HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_SET);
-    else
         HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_RESET);
+    else
+        HAL_GPIO_WritePin(LED_GPIO_PORT, LED_GPIO_PIN, GPIO_PIN_SET);
 }
 
 /**
@@ -49,7 +49,8 @@ void LED_SetState(uint8_t state)
  */
 uint8_t LED_GetState(void)
 {
-    return (uint8_t)HAL_GPIO_ReadPin(LED_GPIO_PORT, LED_GPIO_PIN);
+    /* 低电平为亮, 取反 */
+    return (HAL_GPIO_ReadPin(LED_GPIO_PORT, LED_GPIO_PIN) == GPIO_PIN_RESET) ? 1 : 0;
 }
 
 /**
