@@ -26,11 +26,14 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "tim.h"
 #include "../../User/oled/OLED.h"
 #include "../../User/sd/SD_Card.h"
 #include "../../User/led/led.h"
 #include "../../User/beep/beep.h"
 #include "../../User/key/key.h"
+#include "../../User/ad8232/AD8232.h"
+#include "../../User/display/display.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -136,30 +139,24 @@ int main(void)
   }
   OLED_Update();
   HAL_Delay(2000);
+  
+  /* Initialize AD8232 + display + timer */
+  AD8232_Init();
+  Display_Init();
+  MX_TIM2_Init();
+  TIM2_Start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint32_t count = 0;
   while (1)
   {
-    /* 按键扫描 */
+    /* 1. Key scan + page navigation (v1.3 style) */
     Key_Scan();
-    
-    /* KEY1 短按: 翻转LED */
-    if (Key_GetEvent(KEY1) == KEY_EVENT_SHORT_PRESS)
-    {
-        LED_Toggle();
-    }
-    
-    OLED_Clear();
-    OLED_ShowString(0, 0, "Running...", OLED_8X16);
-    OLED_ShowNum(0, 24, count++, 5, OLED_8X16);
-    OLED_DrawRectangle(80, 20, 30, 30, OLED_UNFILLED);
-    OLED_DrawCircle(95, 35, 10, (count % 2)); // 闪烁实心/空心圆
-    OLED_Update();
-    
-    HAL_Delay(10);
+    Key_Process();
+
+    /* 2. Display update (page transition + ECG sampling + OLED flush) */
+    Display_Update();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
