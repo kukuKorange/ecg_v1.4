@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F411xE</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;..\User\oled;..\User\sd;..\User\led;..\User\beep;..\User\key;..\User\ad8232;..\User\display</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;..\User\oled;..\User\sd;..\User\led;..\User\beep;..\User\key;..\User\ad8232;..\User\display;..\User\battery;..\User\recorder;..\User\storage;..\User\userinfo;..\User</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -438,6 +438,11 @@
               <FileName>tim.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\tim.c</FilePath>
+            </File>
+            <File>
+              <FileName>config.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\User\config.h</FilePath>
             </File>
           </Files>
         </Group>
@@ -598,6 +603,26 @@
               <FileName>display.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\User\display\display.c</FilePath>
+            </File>
+            <File>
+              <FileName>userinfo.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\userinfo\userinfo.c</FilePath>
+            </File>
+            <File>
+              <FileName>storage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\storage\storage.c</FilePath>
+            </File>
+            <File>
+              <FileName>recorder.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\recorder\recorder.c</FilePath>
+            </File>
+            <File>
+              <FileName>battery.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\battery\battery.c</FilePath>
             </File>
           </Files>
         </Group>

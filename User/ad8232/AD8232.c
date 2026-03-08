@@ -24,6 +24,9 @@
 
 /*============================ Global Variables ============================*/
 
+MonitorState_t monitor_state = MONITOR_IDLE;
+uint16_t ecg_last_filtered = 2048;
+
 uint16_t ecg_data[500] = {0};
 uint16_t map_upload[130] = {0};
 uint16_t ecg_index = 1;
@@ -50,24 +53,74 @@ static uint16_t draw_x = 0;
 static float last_filtered = 2048;
 
 /*============================ Heart Rate Detection ============================*/
+/*
+ * 改进算法 (简化 Pan-Tompkins):
+ *   1. 低通滤波 (已有, alpha=0.4, fc≈12Hz)
+ *   2. 高通滤波去基线漂移 (fc≈1.6Hz)
+ *   3. 一阶微分 → 平方 → 强调 QRS 陡峭边沿
+ *   4. 滑动窗口积分 (16 点 = 80ms, 覆盖完整 QRS 波群)
+ *   5. 自适应阈值: threshold = 55% × 近期峰值
+ *   6. 上升沿检测 + 不应期(350ms) + 滞回 + T 波幅度抑制
+ *   7. 中值滤波 (窗口 5) 平滑心率输出
+ */
 
-#define ECG_SAMPLE_RATE     200
-#define ECG_HR_MIN          30
-#define ECG_HR_MAX          220
-#define ECG_PEAK_THRESHOLD  2300
-#define ECG_REFRACTORY_MS   200
-#define ECG_HR_FILTER_SIZE  4
+#define ECG_SAMPLE_RATE      200
+#define ECG_HR_MIN           30
+#define ECG_HR_MAX           220
+#define ECG_REFRACTORY_MS    350       /* 不应期 350ms, 挡住 R 波后的 T 波 (最高心率 ~171bpm) */
+#define ECG_HR_FILTER_SIZE   5         /* 中值滤波窗口 */
+#define ECG_INTEG_WINDOW     16        /* 积分窗口: 16 samples = 80ms, 覆盖 QRS */
+#define ECG_HP_ALPHA         0.95f     /* 高通截止 ≈ 1.6Hz */
+#define ECG_THRESH_RATIO     0.55f     /* 阈值 = 55% × 峰值估计 (抑制 T 波) */
+#define ECG_PEAK_DECAY       0.997f    /* 峰值估计每采样衰减 */
+#define ECG_TWAVE_REJECT     0.5f      /* 积分值 < 上次 R 峰 50% 视为 T 波丢弃 */
 
-static float ecg_prev_value = 2048;
-static float ecg_prev_prev_value = 2048;
+/* 高通滤波器状态 (去除基线漂移) */
+static float ecg_hp_prev_in  = 2048.0f;
+static float ecg_hp_prev_out = 0.0f;
+
+/* 微分 + 积分 */
+static float ecg_prev_bp = 0.0f;      /* 上一次带通滤波值 */
+static float ecg_integ_buf[ECG_INTEG_WINDOW] = {0};
+static uint8_t ecg_integ_idx = 0;
+static float ecg_integ_sum = 0.0f;
+
+/* 自适应阈值 */
+static float ecg_peak_level = 0.0f;   /* 积分信号峰值估计 */
+static uint8_t ecg_above_thresh = 0;  /* 阈值以上标志 (用于上升沿检测) */
+static float ecg_last_rpeak_integ = 0.0f; /* 上次确认 R 峰的积分幅度 */
+
+/* 计时 */
 static uint32_t ecg_sample_count = 0;
 static uint32_t ecg_last_peak_sample = 0;
 static uint8_t ecg_heart_rate = 0;
-static uint8_t ecg_peak_detected = 0;
 
+/* 中值滤波心率缓冲 */
 static uint8_t ecg_hr_buffer[ECG_HR_FILTER_SIZE] = {0};
 static uint8_t ecg_hr_buffer_idx = 0;
 static uint8_t ecg_hr_buffer_count = 0;
+
+static uint8_t hr_median(const uint8_t *arr, uint8_t len)
+{
+    uint8_t sorted[ECG_HR_FILTER_SIZE];
+    uint8_t i, j, temp;
+
+    for (i = 0; i < len; i++)
+        sorted[i] = arr[i];
+
+    for (i = 1; i < len; i++)
+    {
+        temp = sorted[i];
+        j = i;
+        while (j > 0 && sorted[j - 1] > temp)
+        {
+            sorted[j] = sorted[j - 1];
+            j--;
+        }
+        sorted[j] = temp;
+    }
+    return sorted[len / 2];
+}
 
 /*============================ Functions ============================*/
 
@@ -78,17 +131,29 @@ static uint8_t ecg_hr_buffer_count = 0;
   */
 void AD8232_Init(void)
 {
+    uint8_t i;
+
     ecg_index = 1;
     draw_x = 0;
     last_filtered = 2048;
     ecg_fill_idx = 0;
     ecg_buffer_ready = 0;
     ecg_upload_active = 0;
+
+    /* Heart rate detection reset */
     ecg_sample_count = 0;
     ecg_last_peak_sample = 0;
     ecg_heart_rate = 0;
-    ecg_prev_value = 2048;
-    ecg_prev_prev_value = 2048;
+    ecg_hp_prev_in  = 2048.0f;
+    ecg_hp_prev_out = 0.0f;
+    ecg_prev_bp = 0.0f;
+    ecg_integ_idx = 0;
+    ecg_integ_sum = 0.0f;
+    for (i = 0; i < ECG_INTEG_WINDOW; i++)
+        ecg_integ_buf[i] = 0.0f;
+    ecg_peak_level = 0.0f;
+    ecg_above_thresh = 0;
+    ecg_last_rpeak_integ = 0.0f;
     ecg_hr_buffer_idx = 0;
     ecg_hr_buffer_count = 0;
 }
@@ -99,9 +164,7 @@ void AD8232_Init(void)
   */
 uint16_t AD8232_ReadADC(void)
 {
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 10);
-    return (uint16_t)HAL_ADC_GetValue(&hadc1);
+    return ADC_ReadChannel(ADC_CHANNEL_5);
 }
 
 /**
@@ -150,57 +213,83 @@ void ECG_SampleAndDraw(void)
     /* 2. Low-pass filter: y = y_prev + alpha * (x - y_prev) */
     filtered = last_filtered + ((float)adc_raw - last_filtered) * 0.4f;
     last_filtered = filtered;
+    ecg_last_filtered = (uint16_t)filtered;
 
     /* 3. Store filtered data into fill buffer (double-buffer) */
     ecg_fill_buffer[ecg_fill_idx] = (uint16_t)filtered;
     ecg_fill_idx++;
     ecg_sample_count++;
 
-    /* 4. R-peak detection and heart rate calculation */
+    /* 4. R-peak detection: HP filter → derivative → square → integrate → adaptive threshold */
     {
+        float bp_value, deriv, sq, integ, old_sq;
         uint32_t refractory_samples = (ECG_REFRACTORY_MS * ECG_SAMPLE_RATE) / 1000;
 
-        if ((ecg_sample_count > refractory_samples + ecg_last_peak_sample) &&
-            (ecg_prev_value > ecg_prev_prev_value) &&
-            (ecg_prev_value > filtered) &&
-            (ecg_prev_value > ECG_PEAK_THRESHOLD))
+        /* High-pass: remove baseline wander (fc ≈ 1.6Hz @ 200Hz) */
+        ecg_hp_prev_out = ECG_HP_ALPHA * (ecg_hp_prev_out + filtered - ecg_hp_prev_in);
+        ecg_hp_prev_in = filtered;
+        bp_value = ecg_hp_prev_out;
+
+        /* First-order derivative */
+        deriv = bp_value - ecg_prev_bp;
+        ecg_prev_bp = bp_value;
+
+        /* Square to emphasise QRS steep edges */
+        sq = deriv * deriv;
+
+        /* Moving-window integration (16 samples = 80ms) */
+        old_sq = ecg_integ_buf[ecg_integ_idx];
+        ecg_integ_buf[ecg_integ_idx] = sq;
+        ecg_integ_idx = (ecg_integ_idx + 1) % ECG_INTEG_WINDOW;
+        ecg_integ_sum = ecg_integ_sum - old_sq + sq;
+        integ = ecg_integ_sum;
+
+        /* Update running peak estimate (slow exponential decay) */
+        if (integ > ecg_peak_level)
+            ecg_peak_level = integ;
+        else
+            ecg_peak_level *= ECG_PEAK_DECAY;
+
+        /* Rising-edge detection with hysteresis + T-wave rejection */
+        if (integ > ecg_peak_level * ECG_THRESH_RATIO && !ecg_above_thresh)
         {
-            ecg_peak_detected = 1;
+            ecg_above_thresh = 1;
 
-            if (ecg_last_peak_sample > 0)
+            if (ecg_sample_count > refractory_samples + ecg_last_peak_sample)
             {
-                uint32_t rr_samples = ecg_sample_count - ecg_last_peak_sample - 1;
-                uint16_t hr = (60 * ECG_SAMPLE_RATE) / rr_samples;
-
-                if (hr >= ECG_HR_MIN && hr <= ECG_HR_MAX)
+                /* T-wave rejection: if amplitude < 50% of last R-peak, discard */
+                if (ecg_last_rpeak_integ > 0.0f &&
+                    integ < ecg_last_rpeak_integ * ECG_TWAVE_REJECT)
                 {
-                    uint16_t sum = 0;
-                    uint8_t i;
+                    /* likely T-wave, skip */
+                }
+                else
+                {
+                    ecg_last_rpeak_integ = integ;
 
-                    ecg_hr_buffer[ecg_hr_buffer_idx] = (uint8_t)hr;
-                    ecg_hr_buffer_idx = (ecg_hr_buffer_idx + 1) % ECG_HR_FILTER_SIZE;
-                    if (ecg_hr_buffer_count < ECG_HR_FILTER_SIZE)
+                    if (ecg_last_peak_sample > 0)
                     {
-                        ecg_hr_buffer_count++;
-                    }
+                        uint32_t rr_samples = ecg_sample_count - ecg_last_peak_sample;
+                        uint16_t hr = (60 * ECG_SAMPLE_RATE) / rr_samples;
 
-                    for (i = 0; i < ecg_hr_buffer_count; i++)
-                    {
-                        sum += ecg_hr_buffer[i];
+                        if (hr >= ECG_HR_MIN && hr <= ECG_HR_MAX)
+                        {
+                            ecg_hr_buffer[ecg_hr_buffer_idx] = (uint8_t)hr;
+                            ecg_hr_buffer_idx = (ecg_hr_buffer_idx + 1) % ECG_HR_FILTER_SIZE;
+                            if (ecg_hr_buffer_count < ECG_HR_FILTER_SIZE)
+                                ecg_hr_buffer_count++;
+
+                            ecg_heart_rate = hr_median(ecg_hr_buffer, ecg_hr_buffer_count);
+                        }
                     }
-                    ecg_heart_rate = (uint8_t)(sum / ecg_hr_buffer_count);
+                    ecg_last_peak_sample = ecg_sample_count;
                 }
             }
-
-            ecg_last_peak_sample = ecg_sample_count - 1;
         }
-        else
+        else if (integ < ecg_peak_level * ECG_THRESH_RATIO * 0.4f)
         {
-            ecg_peak_detected = 0;
+            ecg_above_thresh = 0; /* must drop to 40% of threshold to re-arm */
         }
-
-        ecg_prev_prev_value = ecg_prev_value;
-        ecg_prev_value = filtered;
     }
 
     /* 5. Swap buffers when fill buffer is full (600 points) */

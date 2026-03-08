@@ -30,6 +30,8 @@ extern volatile uint8_t  ecg_sample_flag;       /**< 200Hz ECG sampling */
 extern volatile uint8_t  oled_update_flag;      /**< 25Hz OLED flush */
 extern volatile uint8_t  display_refresh_flag;  /**< 5Hz info page refresh */
 extern volatile uint8_t  ecg_upload_flag;       /**< 10Hz ECG upload batch */
+extern volatile uint8_t  battery_check_flag;    /**< 1Hz battery reading */
+extern volatile uint8_t  second_tick_flag;      /**< 1Hz tick for recorder */
 extern volatile uint16_t seconds_counter;       /**< Runtime seconds */
 
 /*============================ Functions ============================*/

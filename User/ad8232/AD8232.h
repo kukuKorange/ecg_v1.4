@@ -28,6 +28,17 @@
 #define ECG_UPLOAD_BUFFER_SIZE  600
 #define ECG_UPLOAD_BATCH_SIZE   1
 
+/*============================ Monitoring State ============================*/
+
+typedef enum {
+    MONITOR_IDLE,
+    MONITOR_RUNNING,
+    MONITOR_DONE
+} MonitorState_t;
+
+extern MonitorState_t monitor_state;
+extern uint16_t       ecg_last_filtered;    /**< latest filtered sample for recorder */
+
 /*============================ Extern Variables ============================*/
 
 extern uint16_t ecg_data[500];

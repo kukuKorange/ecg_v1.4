@@ -192,7 +192,7 @@ static void Display_PageECG(void)
         show_time_mmss(46, 0, recorder_recording ? recorder_elapsed_sec : seconds_counter);
 
         /* Heart rate */
-        ecg_hr = ECG_GetHeartRate();
+        ecg_hr = ECG_GetHeartRate() / 2;
         OLED_ShowChar(80, 0, 'H', OLED_6X8);
         OLED_ShowNum(86, 0, ecg_hr, 3, OLED_6X8);
 
@@ -311,9 +311,9 @@ static void Display_PageHistory(void)
         OLED_ShowNum(64, 0, rec.avg_hr, 3, OLED_6X8);
 
         /* Progress */
-        OLED_ShowNum(92, 0, (uint32_t)(hist_play_offset / 200), 3, OLED_6X8);
-        OLED_ShowChar(110, 0, '/', OLED_6X8);
-        OLED_ShowNum(116, 0, rec.duration_sec, 3, OLED_6X8);
+        OLED_ShowNum(92, 0, (uint32_t)(hist_play_offset / 120), 2, OLED_6X8);
+        OLED_ShowChar(102, 0, '/', OLED_6X8);
+        OLED_ShowNum(108, 0, rec.num_samples / 120, 2, OLED_6X8);
 
         /* Load and draw waveform */
         loaded = Recorder_LoadSamples(hist_cursor, hist_play_offset,

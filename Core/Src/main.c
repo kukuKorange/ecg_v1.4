@@ -34,6 +34,10 @@
 #include "../../User/key/key.h"
 #include "../../User/ad8232/AD8232.h"
 #include "../../User/display/display.h"
+#include "../../User/storage/storage.h"
+#include "../../User/battery/battery.h"
+#include "../../User/recorder/recorder.h"
+#include "../../User/userinfo/userinfo.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,44 +109,43 @@ int main(void)
   /* USER CODE BEGIN 2 */
   OLED_Init();
   OLED_ShowString(0, 0, "ECG v1.4", OLED_8X16);
-  OLED_ShowString(0, 16, "SD Init...", OLED_6X8);
+  OLED_ShowString(0, 20, "Initializing...", OLED_6X8);
   OLED_Update();
-  
-  uint8_t sd_res = SD_Init();
-  OLED_Clear();
-  OLED_ShowString(0, 0, "ECG v1.4", OLED_8X16);
-  if (sd_res == 0)
+
+#ifdef STORAGE_USE_SD
   {
-    OLED_ShowString(0, 20, "SD OK!", OLED_8X16);
-    if (SD_CardType == SD_TYPE_V2HC)
-      OLED_ShowString(0, 40, "Type: SDHC(V2)", OLED_6X8);
-    else if (SD_CardType == SD_TYPE_V2)
-      OLED_ShowString(0, 40, "Type: SD V2", OLED_6X8);
-    else if (SD_CardType == SD_TYPE_V1)
-      OLED_ShowString(0, 40, "Type: SD V1", OLED_6X8);
-    else if (SD_CardType == SD_TYPE_MMC)
-      OLED_ShowString(0, 40, "Type: MMC", OLED_6X8);
-    OLED_ShowString(0, 50, "Retry:", OLED_6X8);
-    OLED_ShowNum(36, 50, SD_Debug_Retry, 5, OLED_6X8);
+    uint8_t sd_res = SD_Init();
+    OLED_Clear();
+    OLED_ShowString(0, 0, "ECG v1.4", OLED_8X16);
+    if (sd_res == 0)
+    {
+      OLED_ShowString(0, 20, "SD OK!", OLED_8X16);
+      if (SD_CardType == SD_TYPE_V2HC)
+        OLED_ShowString(0, 40, "Type: SDHC(V2)", OLED_6X8);
+      else if (SD_CardType == SD_TYPE_V2)
+        OLED_ShowString(0, 40, "Type: SD V2", OLED_6X8);
+      else if (SD_CardType == SD_TYPE_V1)
+        OLED_ShowString(0, 40, "Type: SD V1", OLED_6X8);
+      else if (SD_CardType == SD_TYPE_MMC)
+        OLED_ShowString(0, 40, "Type: MMC", OLED_6X8);
+    }
+    else
+    {
+      OLED_ShowString(0, 20, "SD FAIL!", OLED_8X16);
+      OLED_ShowNum(0, 40, sd_res, 1, OLED_6X8);
+    }
+    OLED_Update();
+    HAL_Delay(1500);
   }
-  else
-  {
-    OLED_ShowString(0, 20, "SD FAIL!", OLED_8X16);
-    OLED_ShowString(0, 38, "Err:", OLED_6X8);
-    OLED_ShowNum(24, 38, sd_res, 1, OLED_6X8);
-    OLED_ShowString(0, 48, "C55:", OLED_6X8);
-    OLED_ShowHexNum(24, 48, SD_Debug_CMD55_Res, 2, OLED_6X8);
-    OLED_ShowString(60, 48, "C41:", OLED_6X8);
-    OLED_ShowHexNum(84, 48, SD_Debug_CMD41_Res, 2, OLED_6X8);
-    OLED_ShowString(0, 56, "Retry:", OLED_6X8);
-    OLED_ShowNum(36, 56, SD_Debug_Retry, 5, OLED_6X8);
-  }
-  OLED_Update();
-  HAL_Delay(2000);
-  
-  /* Initialize AD8232 + display + timer */
+#endif
+
+  Storage_Init();
+  UserInfo_Init();
+  Recorder_Init();
+  Battery_Init();
   AD8232_Init();
   Display_Init();
+
   MX_TIM2_Init();
   TIM2_Start();
   /* USER CODE END 2 */
@@ -151,12 +154,25 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* 1. Key scan + page navigation (v1.3 style) */
     Key_Scan();
     Key_Process();
-
-    /* 2. Display update (page transition + ECG sampling + OLED flush) */
     Display_Update();
+
+    /* 1Hz tasks: battery + recorder tick */
+    if (second_tick_flag)
+    {
+      second_tick_flag = 0;
+      Recorder_Tick1Hz();
+    }
+    if (battery_check_flag)
+    {
+      battery_check_flag = 0;
+      Battery_Update();
+      if (battery_low_flag)
+        Beep_Toggle();
+      else
+        Beep_Off();
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

@@ -21,6 +21,8 @@ volatile uint8_t  ecg_sample_flag      = 0;
 volatile uint8_t  oled_update_flag     = 0;
 volatile uint8_t  display_refresh_flag = 0;
 volatile uint8_t  ecg_upload_flag      = 0;
+volatile uint8_t  battery_check_flag   = 0;
+volatile uint8_t  second_tick_flag     = 0;
 volatile uint16_t seconds_counter      = 0;
 
 /*============================ Private Counters ============================*/
@@ -97,11 +99,13 @@ void TIM2_IRQHandler(void)
             display_refresh_flag = 1;
         }
 
-        /* 1Hz: seconds counter */
+        /* 1Hz: seconds counter + battery + recorder tick */
         if (tick_counter >= 200)
         {
             tick_counter = 0;
             seconds_counter++;
+            battery_check_flag = 1;
+            second_tick_flag   = 1;
         }
     }
 }
