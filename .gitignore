@@ -7,6 +7,8 @@ MDK-ARM/Listings/
 MDK-ARM/Objects/
 # If the output directory is named after the project
 MDK-ARM/ecg_v1.4/
+MDK-ARM/JLinkLog.txt
+MDK-ARM/JLinkSettings.ini
 
 # STM32CubeMX
 .mxproject
