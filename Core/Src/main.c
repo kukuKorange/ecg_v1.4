@@ -30,6 +30,7 @@
 #include "../../User/sd/SD_Card.h"
 #include "../../User/led/led.h"
 #include "../../User/beep/beep.h"
+#include "../../User/key/key.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -142,6 +143,15 @@ int main(void)
   uint32_t count = 0;
   while (1)
   {
+    /* 按键扫描 */
+    Key_Scan();
+    
+    /* KEY1 短按: 翻转LED */
+    if (Key_GetEvent(KEY1) == KEY_EVENT_SHORT_PRESS)
+    {
+        LED_Toggle();
+    }
+    
     OLED_Clear();
     OLED_ShowString(0, 0, "Running...", OLED_8X16);
     OLED_ShowNum(0, 24, count++, 5, OLED_8X16);
@@ -149,7 +159,7 @@ int main(void)
     OLED_DrawCircle(95, 35, 10, (count % 2)); // 闪烁实心/空心圆
     OLED_Update();
     
-    HAL_Delay(100);
+    HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
