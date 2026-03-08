@@ -1,16 +1,20 @@
 /**
   ******************************************************************************
   * @file    key.c
-  * @brief   Key driver (PA11/PA12/PA15) + page navigation
+  * @brief   Key driver (PA11/PA12/PA15) + page-specific actions
   *
   * @details Non-blocking scan with debounce + short/long press detection.
-  *          Key_Process() handles page switching (ported from v1.3 Key_Process).
+  *          Key_Process() dispatches to page-specific handlers.
   ******************************************************************************
   */
 
 #include "key.h"
 #include "../display/display.h"
 #include "../led/led.h"
+#include "../recorder/recorder.h"
+#include "../userinfo/userinfo.h"
+#include "../ad8232/AD8232.h"
+#include "../beep/beep.h"
 
 /*============================ Internal State ============================*/
 
@@ -40,12 +44,6 @@ uint8_t Key_ReadRaw(uint8_t key_id)
 
 /*============================ Non-blocking Scan ============================*/
 
-/**
-  * @brief  Rate-limited key scan (~5ms interval via HAL_GetTick)
-  * @note   Safe to call from a fast main loop.
-  *         Debounce:   3 × 5ms = 15ms
-  *         Long press: 200 × 5ms = 1000ms
-  */
 void Key_Scan(void)
 {
     static uint32_t last_tick = 0;
@@ -73,9 +71,7 @@ void Key_Scan(void)
                 else
                 {
                     if (!keys[i].long_triggered)
-                    {
                         keys[i].event = KEY_EVENT_SHORT_PRESS;
-                    }
                 }
             }
         }
@@ -111,9 +107,7 @@ uint8_t Key_GetEvent(uint8_t key_id)
 uint8_t Key_WaitPress(void)
 {
     while (Key_ReadRaw(KEY1) || Key_ReadRaw(KEY2) || Key_ReadRaw(KEY3))
-    {
         HAL_Delay(10);
-    }
     HAL_Delay(20);
 
     while (1)
@@ -131,47 +125,312 @@ uint8_t Key_WaitPress(void)
     }
 }
 
-/*============================ Page Navigation (from v1.3 Key_Process) ============================*/
+/*============================ Page: ECG ============================*/
 
-/**
-  * @brief  Key event handler — page navigation + function keys
-  *
-  *         ┌─────────────────────────────────────┐
-  *         │  [KEY1]      [KEY2]      [KEY3]     │
-  *         │  上一页      功能键       下一页     │
-  *         └─────────────────────────────────────┘
-  */
-void Key_Process(void)
+static void Key_Page_ECG(void)
 {
-    uint8_t evt;
+    uint8_t e1 = Key_GetEvent(KEY1);
+    uint8_t e2 = Key_GetEvent(KEY2);
+    uint8_t e3 = Key_GetEvent(KEY3);
 
-    /* KEY1: previous page (short or long press) */
-    evt = Key_GetEvent(KEY1);
-    if (evt == KEY_EVENT_SHORT_PRESS || evt == KEY_EVENT_LONG_PRESS)
+    /* K2: Start / Stop monitoring */
+    if (e2 == KEY_EVENT_SHORT_PRESS || e2 == KEY_EVENT_LONG_PRESS)
     {
-        if (current_page > 0)
-            current_page--;
-        else
-            current_page = PAGE_MAX - 1;
-    }
-
-    /* KEY2: function key (short press only) */
-    evt = Key_GetEvent(KEY2);
-    if (evt == KEY_EVENT_SHORT_PRESS)
-    {
-        if (current_page == PAGE_ECG)
+        if (recorder_recording)
         {
-            LED_Toggle();
+            Recorder_Stop();
+            monitor_state = MONITOR_DONE;
+        }
+        else
+        {
+            Recorder_Start(setting_mode, setting_timed_dur);
+            monitor_state = MONITOR_RUNNING;
         }
     }
 
-    /* KEY3: next page (short or long press) */
-    evt = Key_GetEvent(KEY3);
-    if (evt == KEY_EVENT_SHORT_PRESS || evt == KEY_EVENT_LONG_PRESS)
+    /* K1 / K3: page navigation (only when not recording) */
+    if (!recorder_recording)
     {
-        if (current_page < PAGE_MAX - 1)
-            current_page++;
+        if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+        {
+            if (current_page > 0)
+                current_page--;
+            else
+                current_page = PAGE_MAX - 1;
+        }
+        if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+        {
+            if (current_page < PAGE_MAX - 1)
+                current_page++;
+            else
+                current_page = 0;
+        }
+    }
+}
+
+/*============================ Page: History ============================*/
+
+static void Key_Page_History(void)
+{
+    uint8_t e1 = Key_GetEvent(KEY1);
+    uint8_t e2 = Key_GetEvent(KEY2);
+    uint8_t e3 = Key_GetEvent(KEY3);
+
+    if (hist_view == HIST_VIEW_LIST)
+    {
+        uint8_t cnt = Recorder_GetCount();
+
+        /* K1: scroll up / prev page */
+        if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+        {
+            if (cnt == 0)
+            {
+                current_page = PAGE_ECG;
+            }
+            else if (hist_cursor > 0)
+            {
+                hist_cursor--;
+            }
+            else
+            {
+                current_page = PAGE_ECG;
+            }
+        }
+
+        /* K3: scroll down / next page */
+        if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+        {
+            if (cnt == 0)
+            {
+                current_page = PAGE_USER;
+            }
+            else if (hist_cursor < cnt - 1)
+            {
+                hist_cursor++;
+            }
+            else
+            {
+                current_page = PAGE_USER;
+            }
+        }
+
+        /* K2: enter playback */
+        if (e2 == KEY_EVENT_SHORT_PRESS && cnt > 0)
+        {
+            hist_view = HIST_VIEW_PLAYBACK;
+            hist_play_offset = 0;
+        }
+    }
+    else /* HIST_VIEW_PLAYBACK */
+    {
+        ECGRecord_t rec;
+        uint32_t step = 120;
+
+        if (Recorder_LoadRecord(hist_cursor, &rec) != 0)
+        {
+            hist_view = HIST_VIEW_LIST;
+            return;
+        }
+
+        /* K1: scroll backward */
+        if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+        {
+            if (hist_play_offset >= step)
+                hist_play_offset -= step;
+            else
+                hist_play_offset = 0;
+        }
+
+        /* K3: scroll forward */
+        if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+        {
+            if (hist_play_offset + step < rec.num_samples)
+                hist_play_offset += step;
+        }
+
+        /* K2: back to list */
+        if (e2 == KEY_EVENT_SHORT_PRESS)
+        {
+            hist_view = HIST_VIEW_LIST;
+        }
+    }
+}
+
+/*============================ Page: User Info ============================*/
+
+static const char char_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
+#define CHAR_TABLE_LEN  (sizeof(char_table) - 1)
+
+static uint8_t char_to_idx(char c)
+{
+    uint8_t i;
+    for (i = 0; i < CHAR_TABLE_LEN; i++)
+        if (char_table[i] == c) return i;
+    return CHAR_TABLE_LEN - 1;  /* default to space */
+}
+
+static void Key_Page_User(void)
+{
+    uint8_t e1 = Key_GetEvent(KEY1);
+    uint8_t e2 = Key_GetEvent(KEY2);
+    uint8_t e3 = Key_GetEvent(KEY3);
+
+    switch (uedit_field)
+    {
+        case UEDIT_VIEW:
+            /* K1/K3: page navigation */
+            if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+            {
+                current_page = PAGE_HISTORY;
+            }
+            if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+            {
+                current_page = PAGE_SETTINGS;
+            }
+            /* K2: enter edit mode (start with name) */
+            if (e2 == KEY_EVENT_SHORT_PRESS || e2 == KEY_EVENT_LONG_PRESS)
+            {
+                uedit_field = UEDIT_FIELD_NAME;
+                uedit_name_pos = 0;
+                uedit_save_tip = 0;
+            }
+            break;
+
+        case UEDIT_FIELD_NAME:
+        {
+            uint8_t ci;
+
+            /* K1: prev character */
+            if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+            {
+                ci = char_to_idx(uedit_name_buf[uedit_name_pos]);
+                if (ci > 0) ci--; else ci = CHAR_TABLE_LEN - 1;
+                uedit_name_buf[uedit_name_pos] = char_table[ci];
+            }
+
+            /* K3: next character */
+            if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+            {
+                ci = char_to_idx(uedit_name_buf[uedit_name_pos]);
+                ci = (ci + 1) % CHAR_TABLE_LEN;
+                uedit_name_buf[uedit_name_pos] = char_table[ci];
+            }
+
+            /* K2 short: confirm char, advance position */
+            if (e2 == KEY_EVENT_SHORT_PRESS)
+            {
+                uedit_name_pos++;
+                if (uedit_name_pos >= USER_NAME_MAX)
+                    uedit_field = UEDIT_FIELD_AGE;
+            }
+
+            /* K2 long: jump to age field */
+            if (e2 == KEY_EVENT_LONG_PRESS)
+            {
+                uedit_field = UEDIT_FIELD_AGE;
+            }
+            break;
+        }
+
+        case UEDIT_FIELD_AGE:
+            /* K1: decrease age */
+            if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+            {
+                if (uedit_age_val > 1) uedit_age_val--;
+            }
+
+            /* K3: increase age */
+            if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+            {
+                if (uedit_age_val < 150) uedit_age_val++;
+            }
+
+            /* K2 short: back to name edit */
+            if (e2 == KEY_EVENT_SHORT_PRESS)
+            {
+                uedit_field = UEDIT_FIELD_NAME;
+                uedit_name_pos = 0;
+            }
+
+            /* K2 long: save and return to view mode */
+            if (e2 == KEY_EVENT_LONG_PRESS)
+            {
+                memcpy(user_info.name, uedit_name_buf, USER_NAME_MAX);
+                user_info.name[USER_NAME_MAX] = '\0';
+                user_info.age = uedit_age_val;
+                UserInfo_Save();
+                uedit_save_tip = 10;   /* show tip for ~2 seconds (10 x 5Hz) */
+                uedit_field = UEDIT_VIEW;
+            }
+            break;
+    }
+}
+
+/*============================ Page: Settings ============================*/
+
+static void Key_Page_Settings(void)
+{
+    uint8_t e1 = Key_GetEvent(KEY1);
+    uint8_t e2 = Key_GetEvent(KEY2);
+    uint8_t e3 = Key_GetEvent(KEY3);
+
+    /* K1: cursor up / prev page */
+    if (e1 == KEY_EVENT_SHORT_PRESS || e1 == KEY_EVENT_LONG_PRESS)
+    {
+        if (setting_cursor > 0)
+            setting_cursor--;
         else
-            current_page = 0;
+            current_page = PAGE_USER;
+    }
+
+    /* K3: cursor down / next page */
+    if (e3 == KEY_EVENT_SHORT_PRESS || e3 == KEY_EVENT_LONG_PRESS)
+    {
+        if (setting_cursor < SETTING_ITEM_MAX - 1)
+            setting_cursor++;
+        else
+            current_page = PAGE_ECG;
+    }
+
+    /* K2: toggle / select */
+    if (e2 == KEY_EVENT_SHORT_PRESS || e2 == KEY_EVENT_LONG_PRESS)
+    {
+        switch (setting_cursor)
+        {
+            case SETTING_MODE:
+                setting_mode = (setting_mode == MODE_CONTINUOUS)
+                               ? MODE_TIMED : MODE_CONTINUOUS;
+                break;
+
+            case SETTING_DURATION:
+                if (setting_mode == MODE_TIMED)
+                {
+                    if (setting_timed_dur == 30)
+                        setting_timed_dur = 60;
+                    else if (setting_timed_dur == 60)
+                        setting_timed_dur = 300;
+                    else
+                        setting_timed_dur = 30;
+                }
+                break;
+
+            case SETTING_DELETE:
+                Recorder_DeleteAll();
+                break;
+        }
+    }
+}
+
+/*============================ Main Dispatcher ============================*/
+
+void Key_Process(void)
+{
+    switch (current_page)
+    {
+        case PAGE_ECG:      Key_Page_ECG();      break;
+        case PAGE_HISTORY:  Key_Page_History();   break;
+        case PAGE_USER:     Key_Page_User();      break;
+        case PAGE_SETTINGS: Key_Page_Settings();  break;
+        default: break;
     }
 }
