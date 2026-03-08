@@ -93,7 +93,7 @@ uint8_t OLED_DisplayBuf[8][128];
   */
 static void OLED_I2C_Delay(void)
 {
-	volatile uint32_t i = 120;  /* 100MHz主频下约6us, 保持与16MHz时相同的I2C速率 */
+	volatile uint32_t i = 8;  /* 100MHz下约0.5us, I2C ~400kHz (SSD1306 max) */
 	while(i--);
 }
 
